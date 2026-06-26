@@ -1,0 +1,26 @@
+[project]
+name = "sony-ch720n-poweroff"
+version = "0.1.0"
+description = "Power off Sony WH-CH720N headphones over RFCOMM on Windows (audio-idle auto-off)."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    # WinRT (Windows Runtime) projection — RFCOMM transport for sony_poweroff.py.
+    # The per-namespace packages do NOT declare the Foundation namespaces as
+    # dependencies, but the async runtime needs them, so list them explicitly.
+    # Tested on Python 3.13 / Windows 11.
+    "winrt-runtime>=3.2.1",
+    "winrt-Windows.Foundation>=3.2.1",
+    "winrt-Windows.Foundation.Collections>=3.2.1",
+    "winrt-Windows.Devices.Enumeration>=3.2.1",
+    "winrt-Windows.Devices.Bluetooth>=3.2.1",
+    "winrt-Windows.Devices.Bluetooth.Rfcomm>=3.2.1",
+    "winrt-Windows.Networking>=3.2.1",
+    "winrt-Windows.Networking.Sockets>=3.2.1",
+    "winrt-Windows.Storage.Streams>=3.2.1",
+]
+
+[tool.uv]
+# This is a standalone app/script set, not a distributable package — don't try
+# to build/install the project itself, only manage its dependencies.
+package = false
