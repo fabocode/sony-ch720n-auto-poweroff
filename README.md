@@ -18,6 +18,8 @@ immediate power-off — no admin required.
 |---|---|
 | `sony_poweroff.py` | Sends the Sony power-off command over RFCOMM (Python + WinRT). **No admin needed.** |
 | `AutoDisconnect-CH720N.ps1` | Daemon: monitors audio and, after the idle threshold, calls `sony_poweroff.py`. |
+| `tray_app.py` | System-tray app: monitors audio directly, shows live state, powers off after a configurable idle. |
+| `Start-Tray.cmd` | Double-click launcher for the tray app (runs it hidden). |
 | `pyproject.toml` / `uv.lock` | Python project + locked dependencies (managed with [uv](https://docs.astral.sh/uv/)). |
 
 ## Requirements
@@ -56,6 +58,31 @@ powershell -ExecutionPolicy Bypass -File .\AutoDisconnect-CH720N.ps1 -ShowPeak -
 ```
 (`state` shows `silence`/`AUDIO`; the `idle` counter only advances during silence
 and resets to `0` the instant any audio plays.)
+
+## System tray app (recommended)
+
+The tray app is the easiest way to run the tool: it monitors the audio itself and
+shows the live state in the icon. Launch it by double-clicking `Start-Tray.cmd`, or:
+```powershell
+.venv\Scripts\pythonw.exe tray_app.py
+```
+A headphone icon appears in the notification area; its **color shows the state**:
+- **green** — connected and audio playing
+- **amber** — connected and silent (counting down to power-off)
+- **gray** — disconnected, or monitoring paused
+
+Hover for a tooltip with the countdown (e.g. `Silent • off in 6:30`). Right-click
+for the menu:
+- **Pause / Resume monitoring**
+- **Power off after** — 5 / 10 / 15 / 30 / 60 min (remembered across restarts)
+- **Power off headphones now**
+- **Open log**
+- **Start with Windows** — toggles a Startup-folder shortcut so it launches at logon
+- **Quit**
+
+A toast notification appears when the headphones are powered off due to audio idle.
+Only one instance runs at a time (no duplicate icons). Settings are saved to
+`%LOCALAPPDATA%\sony-ch720n-tray.json`.
 
 ## How it works
 
