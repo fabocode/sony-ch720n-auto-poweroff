@@ -100,9 +100,11 @@ def make_icon(state: str) -> Image.Image:
     return img
 
 
-def _fmt(seconds: int) -> str:
-    seconds = max(0, int(seconds))
-    return f"{seconds // 60}:{seconds % 60:02d}"
+def _fmt_min(seconds: int) -> str:
+    # Whole minutes, rounded up, so the tooltip changes only once per minute
+    # (no second-by-second ticking).
+    minutes = (max(0, int(seconds)) + 59) // 60
+    return f"{minutes} min"
 
 
 class TrayApp:
@@ -228,9 +230,9 @@ class TrayApp:
     def _set_state(self, state: str, idle: int):
         target = self.cfg["idle_minutes"] * 60
         if state == "playing":
-            tip = f"Playing • off in {_fmt(target)}"
+            tip = f"Playing • off in {_fmt_min(target)}"
         elif state == "silent":
-            tip = f"Silent • off in {_fmt(target - idle)}"
+            tip = f"Silent • off in {_fmt_min(target - idle)}"
         elif state == "disconnected":
             tip = "Disconnected"
         else:

@@ -72,8 +72,8 @@ A headphone icon appears in the notification area; its **color shows the state**
 - **amber** — connected and silent (counting down to power-off)
 - **gray** — disconnected, or monitoring paused
 
-Hover for a tooltip with the countdown (e.g. `Silent • off in 6:30`). Right-click
-for the menu:
+Hover for a tooltip with the countdown in minutes (e.g. `Silent • off in 7 min`).
+Right-click for the menu:
 - **Pause / Resume monitoring**
 - **Power off after** — 5 / 10 / 15 / 30 / 60 min (remembered across restarts)
 - **Power off headphones now**
