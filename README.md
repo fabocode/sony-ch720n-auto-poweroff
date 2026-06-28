@@ -19,7 +19,8 @@ immediate power-off — no admin required.
 | `sony_poweroff.py` | Sends the Sony power-off command over RFCOMM (Python + WinRT). **No admin needed.** |
 | `AutoDisconnect-CH720N.ps1` | Daemon: monitors audio and, after the idle threshold, calls `sony_poweroff.py`. |
 | `tray_app.py` | System-tray app: monitors audio directly, shows live state, powers off after a configurable idle. |
-| `Start-Tray.cmd` | Double-click launcher for the tray app (runs it hidden). |
+| `tray_launcher.py` | Watchdog that runs the tray app and relaunches it if it ever crashes (24/7 resilience). |
+| `Start-Tray.cmd` | Double-click launcher (starts the watchdog, hidden). |
 | `pyproject.toml` / `uv.lock` | Python project + locked dependencies (managed with [uv](https://docs.astral.sh/uv/)). |
 
 ## Requirements
@@ -83,6 +84,19 @@ for the menu:
 A toast notification appears when the headphones are powered off due to audio idle.
 Only one instance runs at a time (no duplicate icons). Settings are saved to
 `%LOCALAPPDATA%\sony-ch720n-tray.json`.
+
+### Running 24/7
+
+`Start-Tray.cmd` and "Start with Windows" launch a small **watchdog**
+(`tray_launcher.py`) that runs the tray app and relaunches it if it ever exits
+unexpectedly, so a transient fault self-recovers. It stops only when you choose
+**Quit**.
+
+The audio monitor polls Core Audio from a dedicated MTA COM thread and caches the
+meter interface, which keeps it stable for long unattended runs. The footprint is
+~30 MB and flat (no leak). Note: in Task Manager you'll see **four** `pythonw.exe`
+entries — that's normal. The uv virtualenv launchers are trampolines, so the one
+watchdog and the one tray app each show up as a trampoline + the real process.
 
 ## How it works
 

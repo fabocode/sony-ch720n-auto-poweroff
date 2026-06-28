@@ -36,6 +36,7 @@ from pycaw.pycaw import AudioUtilities, IAudioMeterInformation
 
 HERE = Path(__file__).resolve().parent
 POWEROFF = HERE / "sony_poweroff.py"
+LAUNCHER = HERE / "tray_launcher.py"      # watchdog that autostart points at
 VENV_PY = HERE / ".venv" / "Scripts" / "python.exe"
 VENV_PYW = HERE / ".venv" / "Scripts" / "pythonw.exe"
 _LOCALAPPDATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home())))
@@ -110,7 +111,7 @@ class TrayApp:
         self.paused = False
         self.idle = 0
         self.suppress = False          # set after a power-off until the device drops
-        self._enum = None
+        self._meter = None             # cached IAudioMeterInformation (re-resolved on loss)
         self._stop = threading.Event()
         self._status = "starting…"
         self._last_ui = None
@@ -126,27 +127,37 @@ class TrayApp:
             pass
 
     # --- audio peak (pycaw / Core Audio) ---------------------------------------
+    def _resolve_meter(self):
+        """Find the matching render endpoint and cache its meter interface.
+        Sets self._meter to None if the device is not currently active."""
+        self._meter = None
+        enum = AudioUtilities.GetDeviceEnumerator()
+        coll = enum.EnumAudioEndpoints(0, 0x1)  # eRender, DEVICE_STATE_ACTIVE
+        match = self.cfg["device_match"].lower()
+        for i in range(coll.GetCount()):
+            dev = coll.Item(i)
+            try:
+                name = AudioUtilities.CreateDevice(dev).FriendlyName or ""
+            except Exception:
+                name = ""
+            if match in name.lower():
+                iface = dev.Activate(IAudioMeterInformation._iid_, CLSCTX_ALL, None)
+                self._meter = cast(iface, POINTER(IAudioMeterInformation))
+                return
+
     def _read_peak(self) -> float:
-        """Max peak [0..1] across active render endpoints matching the device
-        name; -1 if none active (disconnected/off). Mirrors the C# GetPeak."""
+        """Peak [0..1] of the matching endpoint; -1 if not active (off/disconnected).
+        Caches the meter interface and only re-enumerates when it's gone — far
+        fewer COM calls per poll than re-enumerating every time. On any COM error
+        (e.g. device invalidated on disconnect) it resets and reports -1."""
         try:
-            if self._enum is None:
-                self._enum = AudioUtilities.GetDeviceEnumerator()
-            coll = self._enum.EnumAudioEndpoints(0, 0x1)  # eRender, ACTIVE
-            best = -1.0
-            for i in range(coll.GetCount()):
-                dev = coll.Item(i)
-                try:
-                    name = AudioUtilities.CreateDevice(dev).FriendlyName or ""
-                except Exception:
-                    name = ""
-                if self.cfg["device_match"].lower() in name.lower():
-                    iface = dev.Activate(IAudioMeterInformation._iid_, CLSCTX_ALL, None)
-                    peak = cast(iface, POINTER(IAudioMeterInformation)).GetPeakValue()
-                    best = max(best, peak)
-            return best
+            if self._meter is None:
+                self._resolve_meter()
+            if self._meter is None:
+                return -1.0
+            return self._meter.GetPeakValue()
         except Exception:
-            self._enum = None
+            self._meter = None
             return -1.0
 
     # --- power off --------------------------------------------------------------
@@ -175,7 +186,11 @@ class TrayApp:
 
     # --- monitor loop -----------------------------------------------------------
     def _monitor(self):
-        comtypes.CoInitialize()
+        # MTA (multithreaded apartment): this worker only polls COM and never
+        # pumps a Windows message loop, so STA would be incorrect and caused
+        # intermittent access-violation crashes in _ctypes. MMDevice objects are
+        # apartment-agnostic ("Both"), so MTA is safe here.
+        comtypes.CoInitializeEx(comtypes.COINIT_MULTITHREADED)
         try:
             while not self._stop.wait(self.cfg["poll_seconds"]):
                 # Keep the loop alive across any transient error (COM hiccup,
@@ -184,7 +199,7 @@ class TrayApp:
                     self._tick()
                 except Exception as e:
                     self._log(f"monitor error: {e!r}")
-                    self._enum = None
+                    self._meter = None
         finally:
             comtypes.CoUninitialize()
 
@@ -271,7 +286,7 @@ class TrayApp:
                  "$ws = New-Object -ComObject WScript.Shell; "
                  f"$s = $ws.CreateShortcut('{STARTUP_LNK}'); "
                  f"$s.TargetPath = '{target}'; "
-                 f"$s.Arguments = '\"{Path(__file__).resolve()}\"'; "
+                 f"$s.Arguments = '\"{LAUNCHER}\"'; "
                  f"$s.WorkingDirectory = '{HERE}'; "
                  "$s.Save()"],
                 creationflags=CREATE_NO_WINDOW,
@@ -322,4 +337,14 @@ if __name__ == "__main__":
     _mutex = acquire_single_instance()
     if _mutex is None:
         sys.exit(0)            # another instance is already running
-    TrayApp().run()
+    try:
+        TrayApp().run()
+    except Exception:
+        import traceback
+        try:
+            with open(LOG, "a", encoding="utf-8") as f:
+                f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S}  FATAL:\n"
+                        f"{traceback.format_exc()}\n")
+        except OSError:
+            pass
+        sys.exit(1)            # non-zero -> the watchdog relaunches us
