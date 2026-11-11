@@ -95,6 +95,8 @@ class MacRfcommTransport:
         _pump_until(lambda: d.received or d.closed, timeout)
         data = bytes(d.received)
         d.received.clear()
+        if not data and d.closed:
+            raise EOFError("RFCOMM channel closed")
         return data
 
     def close(self) -> None:

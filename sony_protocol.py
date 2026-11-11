@@ -69,7 +69,8 @@ class Transport(Protocol):
     async def send(self, data: bytes) -> None: ...
 
     async def read(self, timeout: float) -> bytes:
-        """Return the bytes that came in, or b"" when nothing came in `timeout` s."""
+        """Return the bytes that came in, or b"" when nothing came in `timeout` s.
+        Raise EOFError when the link is closed and no bytes are left."""
         ...
 
 
@@ -246,7 +247,11 @@ async def run_session(transport: Transport, hs: Handshake, timeout: float,
     deadline = loop.time() + timeout
 
     while loop.time() < deadline:
-        frame = await _next_frame(transport, frames, FRAME_WAIT_SECONDS)
+        try:
+            frame = await _next_frame(transport, frames, FRAME_WAIT_SECONDS)
+        except EOFError:
+            vlog("RX: link closed by device")
+            break
         if frame is None:
             if hs.sent_po:
                 break

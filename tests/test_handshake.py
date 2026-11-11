@@ -82,3 +82,24 @@ def test_session_powers_off_and_returns_ok():
 def test_session_without_reply_times_out_incomplete():
     rc = asyncio.run(run_session(FakeTransport([]), Handshake("v2"), timeout=0.01))
     assert rc == RC_HANDSHAKE_INCOMPLETE
+
+
+class ClosingTransport(FakeTransport):
+    """Like FakeTransport, but the device closes the link when replies run out."""
+
+    async def read(self, timeout):
+        data = await super().read(timeout)
+        if not data and not self.replies:
+            raise EOFError
+        return data
+
+
+def test_session_ends_ok_when_device_closes_link_after_poweroff():
+    t = ClosingTransport([build(ACK, 1, b"") + build(COMMAND_1, 0, INIT_REPLY_V2), b"", b""])
+    rc = asyncio.run(run_session(t, Handshake("v2"), timeout=5))
+    assert rc == RC_OK
+
+
+def test_session_ends_incomplete_when_device_closes_link_early():
+    rc = asyncio.run(run_session(ClosingTransport([]), Handshake("v2"), timeout=5))
+    assert rc == RC_HANDSHAKE_INCOMPLETE
