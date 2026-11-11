@@ -1,7 +1,7 @@
 [project]
 name = "sony-ch720n-poweroff"
 version = "0.1.0"
-description = "Power off Sony WH-CH720N headphones over RFCOMM on Windows (audio-idle auto-off)."
+description = "Power off Sony WH-CH720N headphones over RFCOMM on Windows and macOS (audio-idle auto-off)."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -9,18 +9,26 @@ dependencies = [
     # The per-namespace packages do NOT declare the Foundation namespaces as
     # dependencies, but the async runtime needs them, so list them explicitly.
     # Tested on Python 3.13 / Windows 11.
-    "winrt-runtime>=3.2.1",
-    "winrt-Windows.Foundation>=3.2.1",
-    "winrt-Windows.Foundation.Collections>=3.2.1",
-    "winrt-Windows.Devices.Enumeration>=3.2.1",
-    "winrt-Windows.Devices.Bluetooth>=3.2.1",
-    "winrt-Windows.Devices.Bluetooth.Rfcomm>=3.2.1",
-    "winrt-Windows.Networking>=3.2.1",
-    "winrt-Windows.Networking.Sockets>=3.2.1",
-    "winrt-Windows.Storage.Streams>=3.2.1",
+    "winrt-runtime>=3.2.1; sys_platform == 'win32'",
+    "winrt-Windows.Foundation>=3.2.1; sys_platform == 'win32'",
+    "winrt-Windows.Foundation.Collections>=3.2.1; sys_platform == 'win32'",
+    "winrt-Windows.Devices.Enumeration>=3.2.1; sys_platform == 'win32'",
+    "winrt-Windows.Devices.Bluetooth>=3.2.1; sys_platform == 'win32'",
+    "winrt-Windows.Devices.Bluetooth.Rfcomm>=3.2.1; sys_platform == 'win32'",
+    "winrt-Windows.Networking>=3.2.1; sys_platform == 'win32'",
+    "winrt-Windows.Networking.Sockets>=3.2.1; sys_platform == 'win32'",
+    "winrt-Windows.Storage.Streams>=3.2.1; sys_platform == 'win32'",
+    "pycaw>=20251023; sys_platform == 'win32'",
+    # macOS: IOBluetooth (RFCOMM) and Cocoa (run loop) through PyObjC.
+    "pyobjc-framework-IOBluetooth>=11.0; sys_platform == 'darwin'",
+    "pyobjc-framework-Cocoa>=11.0; sys_platform == 'darwin'",
     "pystray>=0.19.5",
     "pillow>=12.2.0",
-    "pycaw>=20251023",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
 ]
 
 [tool.uv]
