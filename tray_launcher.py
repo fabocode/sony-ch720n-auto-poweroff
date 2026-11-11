@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Watchdog launcher: keeps the tray app running 24/7.
+"""Watchdog launcher (Windows): keeps the tray app running 24/7.
 
 It runs tray_app.py and, if it ever dies unexpectedly (e.g. a native COM fault
 that Python can't catch), relaunches it after a short backoff. When the tray app
@@ -8,47 +8,43 @@ already running — the watchdog stops too.
 
 The "Start with Windows" shortcut and Start-Tray.cmd point here so a crash
 self-recovers without user intervention.
+
+macOS does not use this file: the LaunchAgent's KeepAlive does the same job
+(see platform_glue.launch_agent_plist).
 """
-import ctypes
-import os
 import subprocess
 import sys
 import time
 from datetime import datetime
-from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-PYW = HERE / ".venv" / "Scripts" / "pythonw.exe"
-PY = HERE / ".venv" / "Scripts" / "python.exe"
-TRAY = HERE / "tray_app.py"
-LOG = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "sony-ch720n-tray.log"
+import platform_glue as glue
 
-MUTEX_NAME = "Global\\SonyCH720NTrayLauncher"
-ERROR_ALREADY_EXISTS = 183
+INSTANCE_NAME = "SonyCH720NTrayLauncher"
 BACKOFF_SECONDS = 5
-CREATE_NO_WINDOW = 0x08000000
 
 
 def log(msg: str) -> None:
     try:
-        with open(LOG, "a", encoding="utf-8") as f:
+        with open(glue.LOG, "a", encoding="utf-8") as f:
             f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S}  [launcher] {msg}\n")
     except OSError:
         pass
 
 
-def single_instance() -> bool:
-    ctypes.windll.kernel32.CreateMutexW(None, False, MUTEX_NAME)
-    return ctypes.windll.kernel32.GetLastError() != ERROR_ALREADY_EXISTS
-
-
 def main() -> int:
-    if not single_instance():
+    if not glue.IS_WINDOWS:
+        print("tray_launcher.py is for Windows. On macOS run start-tray.command, "
+              "or turn on 'Start at login' (launchd restarts the app after a crash).",
+              file=sys.stderr)
+        return 2
+    _instance = glue.acquire_single_instance(INSTANCE_NAME)
+    if _instance is None:
         return 0  # another watchdog already supervising
-    exe = str(PYW if PYW.exists() else PY)
+    exe = glue.venv_python(gui=True)
     crashes = 0
     while True:
-        rc = subprocess.run([exe, str(TRAY)], creationflags=CREATE_NO_WINDOW).returncode
+        rc = subprocess.run([exe, str(glue.TRAY)],
+                            creationflags=glue.NO_WINDOW_FLAGS).returncode
         if rc == 0:
             return 0  # clean quit (user) or another instance owns the tray
         crashes += 1
