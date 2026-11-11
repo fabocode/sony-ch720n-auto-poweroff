@@ -1,26 +1,33 @@
-# Sony WH-CH720N — audio-idle auto power-off (Windows 11)
+# Sony WH-CH720N — audio-idle auto power-off (Windows 11 and macOS)
 
 Powers off Sony WH-CH720N headphones after X minutes **without audio**, the way an
 Xbox Wireless Headset does.
 
 **The problem:** the Sony's built-in auto-off counts time *without a Bluetooth
-connection*, not *without audio*. Windows keeps the connection alive while the
+connection*, not *without audio*. Windows (and macOS) keep the connection alive while the
 headphones are the active audio output (even when nothing is playing), so they
 never power off on their own.
 
-**The solution:** monitor the Core Audio peak meter and, after X minutes of
+**The solution:** watch the headphones' audio output and, after X minutes of
 silence, **send the Sony protocol "power off" command** over RFCOMM. Real,
-immediate power-off — no admin required.
+immediate power-off — no admin required. See [macOS](#macos) for the Mac setup.
 
 ## Components
 
 | File | Role |
 |---|---|
-| `sony_poweroff.py` | Sends the Sony power-off command over RFCOMM (Python + WinRT). **No admin needed.** |
-| `AutoDisconnect-CH720N.ps1` | Daemon: monitors audio and, after the idle threshold, calls `sony_poweroff.py`. |
-| `tray_app.py` | System-tray app: monitors audio directly, shows live state, powers off after a configurable idle. |
-| `tray_launcher.py` | Watchdog that runs the tray app and relaunches it if it ever crashes (24/7 resilience). |
-| `Start-Tray.cmd` | Double-click launcher (starts the watchdog, hidden). |
+| `sony_poweroff.py` | CLI: sends the Sony power-off command over RFCOMM. **No admin needed.** |
+| `sony_protocol.py` | Sony protocol: framing, INIT handshake, power-off (pure Python, shared). |
+| `bt_windows.py` / `bt_macos.py` | RFCOMM transport: WinRT on Windows, IOBluetooth on macOS. |
+| `tray_app.py` | Tray / menu-bar app: monitors audio directly, shows live state, powers off after a configurable idle. |
+| `audio_windows.py` / `audio_macos.py` | Audio activity: Core Audio peak meter (Windows), CoreAudio "device running" (macOS). |
+| `idle_tracker.py` | The silence countdown (pure logic, shared). |
+| `platform_glue.py` | Paths, single instance, open file, start at login, per OS. |
+| `AutoDisconnect-CH720N.ps1` | Windows daemon: monitors audio and, after the idle threshold, calls `sony_poweroff.py`. |
+| `tray_launcher.py` | Windows watchdog that runs the tray app and relaunches it if it ever crashes (24/7 resilience). |
+| `Start-Tray.cmd` | Windows double-click launcher (starts the watchdog, hidden). |
+| `start-tray.command` | macOS double-click launcher (starts the menu-bar app in the background). |
+| `tests/` | `uv run pytest` — protocol, handshake, idle countdown (no hardware needed). |
 | `pyproject.toml` / `uv.lock` | Python project + locked dependencies (managed with [uv](https://docs.astral.sh/uv/)). |
 
 ## Requirements
@@ -125,6 +132,41 @@ Framing, checksum, escaping, and opcodes come from the open-source
 
 **Verified on real hardware:** the WH-CH720N speaks **Protocol V2** and powers
 fully off with `POWER_SET 24 03 01`.
+
+## macOS
+
+Tested on macOS 27 (Apple silicon) with the same `uv` setup.
+
+1. `uv sync` (installs PyObjC for IOBluetooth on macOS; WinRT/pycaw are skipped).
+2. Pair and connect the WH-CH720N in **System Settings → Bluetooth**.
+3. Power off now:
+   ```sh
+   uv run sony_poweroff.py --dry-run --verbose   # handshake only (safe test)
+   uv run sony_poweroff.py                       # power off
+   ```
+   The first run asks for **Bluetooth permission** for the app that runs it
+   (Terminal, iTerm, …). Allow it. `--device` picks the paired device by part of
+   its name or by address (default `CH720N`).
+4. Menu-bar app: double-click `start-tray.command`, or
+   `.venv/bin/python tray_app.py`. Same menu and colors as on Windows;
+   **Start at login** writes a LaunchAgent
+   (`~/Library/LaunchAgents/com.fabocode.sony-ch720n-tray.plist`) that takes
+   effect at the next login. launchd restarts the app after a crash, but not
+   after **Quit** — it replaces `tray_launcher.py`.
+   Log: `~/Library/Logs/sony-ch720n-tray.log`. Settings:
+   `~/Library/Application Support/sony-ch720n-tray.json`.
+
+**How "silence" works on macOS:** macOS has no simple per-device peak meter, so
+the app checks whether any app is playing to the headphones (CoreAudio
+`DeviceIsRunningSomewhere`). Most players (Music, Spotify, Safari) close their
+audio stream a short time after you pause, so the countdown starts then. Limit:
+an app that keeps its stream open while silent counts as "playing" and holds the
+timer at 0.
+
+**Bluetooth permission and launchd:** when the app runs from a LaunchAgent,
+macOS asks for (or checks) Bluetooth permission for the Python binary, not for
+Terminal. If "Power off" works from Terminal but fails at login, check
+**System Settings → Privacy & Security → Bluetooth**.
 
 ## Deferred
 
