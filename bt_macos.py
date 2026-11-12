@@ -20,7 +20,8 @@ from sony_protocol import (V1_UUID, V2_UUID, RC_CONNECT_FAILED, RC_NO_SERVICE,
                            Link, LogFn, TransportError)
 
 SDP_TIMEOUT_SECONDS = 10
-SETTLE_SECONDS = 0.5     # SonyHeadphonesSupport: "connecting too fast fails"
+OPEN_TIMEOUT_SECONDS = 10
+SETTLE_SECONDS = 0.5    # SonyHeadphonesSupport: "connecting too fast fails"
 PUMP_STEP_SECONDS = 0.05
 K_IO_RETURN_SUCCESS = 0
 
@@ -53,11 +54,15 @@ class _ChannelDelegate(NSObject,
             return None
         self.received = bytearray()
         self.closed = False
+        self.open_status = None     # IOReturn from rfcommChannelOpenComplete
         return self
 
     def rfcommChannelData_data_length_(self, channel, data, length):
         # PyObjC passes the C buffer as a raw address (int).
         self.received.extend(ctypes.string_at(data, length))
+
+    def rfcommChannelOpenComplete_status_(self, channel, status):
+        self.open_status = status
 
     def rfcommChannelClosed_(self, channel):
         self.closed = True
@@ -177,13 +182,21 @@ async def connect(prefer: str, device_match: str, log: LogFn) -> Link:
         raise TransportError(RC_NO_SERVICE,
                              f"ERROR: no Sony RFCOMM service found on '{dev.name()}'.")
 
+    # Async open, then wait on the run loop. The Sync variant fails with
+    # kIOReturnError (0xE00002BC) on macOS 27 for this device.
     delegate = _ChannelDelegate.alloc().init()
-    status, channel = dev.openRFCOMMChannelSync_withChannelID_delegate_(
+    status, channel = dev.openRFCOMMChannelAsync_withChannelID_delegate_(
         None, channel_id, delegate)
+    if status == K_IO_RETURN_SUCCESS and channel is not None:
+        _pump_until(lambda: delegate.open_status is not None or delegate.closed,
+                    OPEN_TIMEOUT_SECONDS)
+        status = delegate.open_status
     if status != K_IO_RETURN_SUCCESS or channel is None:
+        if channel is not None and not delegate.closed:
+            channel.closeChannel()
+        shown = "timeout" if status is None else f"IOReturn {status & 0xFFFFFFFF:#x}"
         raise TransportError(RC_CONNECT_FAILED,
-                             f"ERROR: RFCOMM connect failed: IOReturn {status:#x} "
-                             f"(channel {channel_id})")
+                             f"ERROR: RFCOMM connect failed: {shown} (channel {channel_id})")
 
     _pump_until(lambda: delegate.closed, SETTLE_SECONDS)
     if delegate.closed:
