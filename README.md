@@ -165,7 +165,11 @@ timer at 0.
 
 **Bluetooth permission and launchd:** when the app runs from a LaunchAgent,
 macOS asks for (or checks) Bluetooth permission for the Python binary, not for
-Terminal. If "Power off" works from Terminal but fails at login, check
+Terminal. The first power-off after login shows the prompt ("Python would like
+to use Bluetooth"); that attempt fails while the prompt is open. After you
+allow it, **Quit the app and start it again** (or log out and in): the running
+app keeps the old "no permission" state until it restarts. A
+`connect failed: timeout` line in the log means this. Check the setting in
 **System Settings → Privacy & Security → Bluetooth**.
 
 ## Deferred

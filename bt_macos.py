@@ -194,7 +194,10 @@ async def connect(prefer: str, device_match: str, log: LogFn) -> Link:
     if status != K_IO_RETURN_SUCCESS or channel is None:
         if channel is not None and not delegate.closed:
             channel.closeChannel()
-        shown = "timeout" if status is None else f"IOReturn {status & 0xFFFFFFFF:#x}"
+        # A timeout is what macOS gives when Bluetooth permission is missing or
+        # was granted after the parent app started (it must be restarted).
+        shown = ("timeout (check Bluetooth permission; restart the app after granting it)"
+                 if status is None else f"IOReturn {status & 0xFFFFFFFF:#x}")
         raise TransportError(RC_CONNECT_FAILED,
                              f"ERROR: RFCOMM connect failed: {shown} (channel {channel_id})")
 
