@@ -20,7 +20,15 @@ from sony_protocol import (V1_UUID, V2_UUID, RC_CONNECT_FAILED, RC_NO_SERVICE,
                            Link, LogFn, TransportError)
 
 SDP_TIMEOUT_SECONDS = 10
-OPEN_TIMEOUT_SECONDS = 10
+# IOBluetooth starts its CoreBluetooth layer in every new process. An RFCOMM open
+# issued before that layer is ready is dropped ("API MISUSE: can only accept this
+# command while in the powered on state") and never completes. So: let the run
+# loop settle first, use a short wait per attempt, and retry. Worst case
+# (1 + 3*4 + 2*0.5 s) stays well inside tray_app.py's 30 s subprocess timeout.
+WARMUP_SECONDS = 1.0
+OPEN_TIMEOUT_SECONDS = 4
+OPEN_ATTEMPTS = 3
+RETRY_PAUSE_SECONDS = 0.5
 SETTLE_SECONDS = 0.5    # SonyHeadphonesSupport: "connecting too fast fails"
 PUMP_STEP_SECONDS = 0.05
 K_IO_RETURN_SUCCESS = 0
@@ -165,6 +173,26 @@ def _find_service(dev, prefer: str):
     return None, None
 
 
+def _open_channel(dev, channel_id: int):
+    """One async RFCOMM open, waiting on the run loop for the completion.
+
+    Returns (status, channel, delegate). status is None when the open never
+    completed (the half-open channel is closed). The Sync open variant fails
+    with kIOReturnError (0xE00002BC) on macOS 27 for this device.
+    """
+    delegate = _ChannelDelegate.alloc().init()
+    status, channel = dev.openRFCOMMChannelAsync_withChannelID_delegate_(
+        None, channel_id, delegate)
+    if status == K_IO_RETURN_SUCCESS and channel is not None:
+        _pump_until(lambda: delegate.open_status is not None or delegate.closed,
+                    OPEN_TIMEOUT_SECONDS)
+        status = delegate.open_status
+    if (status != K_IO_RETURN_SUCCESS or channel is None) and channel is not None \
+            and not delegate.closed:
+        channel.closeChannel()
+    return status, channel, delegate
+
+
 async def connect(prefer: str, device_match: str, log: LogFn) -> Link:
     dev = find_device(device_match)
     if dev is None:
@@ -182,24 +210,26 @@ async def connect(prefer: str, device_match: str, log: LogFn) -> Link:
         raise TransportError(RC_NO_SERVICE,
                              f"ERROR: no Sony RFCOMM service found on '{dev.name()}'.")
 
-    # Async open, then wait on the run loop. The Sync variant fails with
-    # kIOReturnError (0xE00002BC) on macOS 27 for this device.
-    delegate = _ChannelDelegate.alloc().init()
-    status, channel = dev.openRFCOMMChannelAsync_withChannelID_delegate_(
-        None, channel_id, delegate)
-    if status == K_IO_RETURN_SUCCESS and channel is not None:
-        _pump_until(lambda: delegate.open_status is not None or delegate.closed,
-                    OPEN_TIMEOUT_SECONDS)
-        status = delegate.open_status
-    if status != K_IO_RETURN_SUCCESS or channel is None:
-        if channel is not None and not delegate.closed:
-            channel.closeChannel()
-        # A timeout is what macOS gives when Bluetooth permission is missing or
-        # was granted after the parent app started (it must be restarted).
-        shown = ("timeout (check Bluetooth permission; restart the app after granting it)"
-                 if status is None else f"IOReturn {status & 0xFFFFFFFF:#x}")
-        raise TransportError(RC_CONNECT_FAILED,
-                             f"ERROR: RFCOMM connect failed: {shown} (channel {channel_id})")
+    # Let IOBluetooth's CoreBluetooth layer reach "powered on" before opening.
+    _pump_until(lambda: False, WARMUP_SECONDS)
+
+    for attempt in range(1, OPEN_ATTEMPTS + 1):
+        status, channel, delegate = _open_channel(dev, channel_id)
+        if status == K_IO_RETURN_SUCCESS and channel is not None:
+            break
+        if status is not None:      # a real error from the stack: do not retry
+            raise TransportError(
+                RC_CONNECT_FAILED,
+                f"ERROR: RFCOMM connect failed: IOReturn {status & 0xFFFFFFFF:#x} "
+                f"(channel {channel_id})")
+        if attempt < OPEN_ATTEMPTS:
+            log(f"RFCOMM open did not complete (attempt {attempt}/{OPEN_ATTEMPTS}); retrying")
+            _pump_until(lambda: False, RETRY_PAUSE_SECONDS)
+    else:
+        raise TransportError(
+            RC_CONNECT_FAILED,
+            f"ERROR: RFCOMM connect failed: open never completed after {OPEN_ATTEMPTS} "
+            f"attempts (Bluetooth stack not ready) (channel {channel_id})")
 
     _pump_until(lambda: delegate.closed, SETTLE_SECONDS)
     if delegate.closed:

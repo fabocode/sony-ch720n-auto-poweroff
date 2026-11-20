@@ -168,9 +168,16 @@ macOS asks for (or checks) Bluetooth permission for the Python binary, not for
 Terminal. The first power-off after login shows the prompt ("Python would like
 to use Bluetooth"); that attempt fails while the prompt is open. After you
 allow it, **Quit the app and start it again** (or log out and in): the running
-app keeps the old "no permission" state until it restarts. A
-`connect failed: timeout` line in the log means this. Check the setting in
+app keeps the old "no permission" state until it restarts. Without permission
+the paired device list comes back empty, so the log shows
+`no paired Bluetooth device matches`. Check the setting in
 **System Settings → Privacy & Security → Bluetooth**.
+
+**`open never completed` in the log:** each power-off starts a new process, and
+IOBluetooth drops an RFCOMM open that comes before its Bluetooth layer is ready
+(the system log shows `API MISUSE: … only accept this command while in the
+powered on state`). `bt_macos.py` waits about 1 s before opening and retries the
+open up to 3 times, so this line only appears when every attempt failed.
 
 ## Deferred
 
