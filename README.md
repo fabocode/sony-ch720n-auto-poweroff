@@ -156,12 +156,20 @@ Tested on macOS 27 (Apple silicon) with the same `uv` setup.
    Log: `~/Library/Logs/sony-ch720n-tray.log`. Settings:
    `~/Library/Application Support/sony-ch720n-tray.json`.
 
-**How "silence" works on macOS:** macOS has no simple per-device peak meter, so
-the app checks whether any app is playing to the headphones (CoreAudio
-`DeviceIsRunningSomewhere`). Most players (Music, Spotify, Safari) close their
-audio stream a short time after you pause, so the countdown starts then. Limit:
-an app that keeps its stream open while silent counts as "playing" and holds the
-timer at 0.
+**How "silence" works on macOS:** when no app has an audio stream open on the
+headphones, they are silent. When one does, the app measures the real level
+with a Core Audio **process tap** on the headphones' output (macOS 14.2+), the
+same peak check as on Windows. This matters because some apps, Chrome for
+example, keep their stream open while silent.
+
+The tap needs the **System Audio Recording** permission for the Python binary
+(**System Settings → Privacy & Security → System Audio Recording**; macOS asks
+the first time). Only a peak value is kept; no audio is stored. Without the
+permission macOS can hand the tap silence, so the app trusts the tap only after
+it has heard real audio once per run (the log then says
+`audio level tap active`). Until then an open stream counts as "playing", the
+old behavior. If the log says the tap has only seen silence, allow Python in
+that setting and restart the app.
 
 **Bluetooth permission and launchd:** when the app runs from a LaunchAgent,
 macOS asks for (or checks) Bluetooth permission for the Python binary, not for
