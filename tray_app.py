@@ -5,7 +5,7 @@ Self-contained: it reads the headphones' audio activity directly, shows the live
 state in the icon, and powers the headphones off (via sony_poweroff.py) after a
 configurable amount of silence.
   Windows: playback peak meter (pycaw / Core Audio), see audio_windows.py.
-  macOS:   "device is running somewhere" (CoreAudio), see audio_macos.py.
+  macOS:   CoreAudio process tap on the headphones' output, see audio_macos.py.
 
 Icon color reflects the audio state:
   - green  = connected and playing
@@ -52,7 +52,8 @@ PAUSED = "paused"
 DEFAULTS = {
     "idle_minutes": 10,
     "poll_seconds": 2,
-    # Windows: peak level. macOS: the level is 0 or 1, so any value in (0, 1) works.
+    # Peak level below which the headphones count as silent (both platforms;
+    # macOS measures it with a Core Audio process tap, see audio_macos.py).
     "silence_threshold": 0.0005,
     "device_match": "CH720N",
 }
@@ -113,7 +114,8 @@ class TrayApp:
         self.cfg = load_config()
         self.paused = False
         self.tracker = IdleTracker()
-        self.meter = AudioMeter(self.cfg["device_match"])
+        self.meter = (AudioMeter(self.cfg["device_match"]) if glue.IS_WINDOWS
+                      else AudioMeter(self.cfg["device_match"], log=log_line))
         self._stop = threading.Event()
         self._status = "starting…"
         self._last_ui = None
